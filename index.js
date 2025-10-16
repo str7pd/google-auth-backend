@@ -11,7 +11,7 @@ admin.initializeApp({
   credential: admin.credential.cert(require('./serviceAccountKey.json'))
 });
 
-const client = new OAuth2Client("YOUR_GOOGLE_CLIENT_ID");
+const client = new OAuth2Client("445520681231-v2m8ilhhecf8k4466fg8v2i5h44oi654.apps.googleusercontent.com");
 
 app.post('/google-login', async (req, res) => {
   try {
