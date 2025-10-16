@@ -31,5 +31,9 @@ app.post('/google-login', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT;
 app.listen(PORT, () => console.log(`✅ Backend running on port ${PORT}`));
+app.get('/', (req, res) => {
+  res.send('✅ Google Auth backend is running.');
+});
+
