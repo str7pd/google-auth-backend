@@ -17,9 +17,10 @@ app.post('/google-login', async (req, res) => {
   try {
     const { idToken } = req.body;
     const ticket = await client.verifyIdToken({
-      idToken,
-      audience: "YOUR_GOOGLE_CLIENT_ID",
-    });
+  idToken,
+  audience: "445520681231-v2m8ilhhecf8k4466fg8v2i5h44oi654.apps.googleusercontent.com",
+});
+
     const payload = ticket.getPayload();
     const uid = payload['sub'];
     const firebaseToken = await admin.auth().createCustomToken(uid);
