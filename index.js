@@ -1,41 +1,36 @@
-const express = require('express');
-const cors = require('cors');
-const { OAuth2Client } = require('google-auth-library');
-const admin = require('firebase-admin');
+import admin from "firebase-admin";
+import { OAuth2Client } from "google-auth-library";
+import express from "express";
 
 const app = express();
-app.use(cors());
-app.use(express.json()); // ✅ REQUIRED before routes
+app.use(express.json());
 
-admin.initializeApp({
-  credential: admin.credential.cert(require('./serviceAccountKey.json'))
-});
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault(),
+  });
+}
 
 const client = new OAuth2Client("445520681231-v2m8ilhhecf8k4466fg8v2i5h44oi654.apps.googleusercontent.com");
 
-app.get("/", (req, res) => {
-  res.send("✅ Google Auth backend is running!");
-});
-
 app.post("/google-login", async (req, res) => {
   try {
-    const { idToken } = req.body; // ✅ will now work
-    if (!idToken) throw new Error("No idToken received from client");
-
+    const { idToken } = req.body;
     const ticket = await client.verifyIdToken({
       idToken,
       audience: "445520681231-v2m8ilhhecf8k4466fg8v2i5h44oi654.apps.googleusercontent.com",
     });
 
     const payload = ticket.getPayload();
-    const uid = payload["sub"];
+    const uid = payload.sub;
+
+    // Create Firebase custom token
     const firebaseToken = await admin.auth().createCustomToken(uid);
     res.json({ token: firebaseToken });
   } catch (err) {
-    console.error("Login error:", err);
-    res.status(400).json({ error: err.message || "Login failed" });
+    console.error(err);
+    res.status(500).json({ error: "Token exchange failed", details: err.message });
   }
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`✅ Backend running on port ${PORT}`));
+app.listen(8080, () => console.log("Server started on port 8080"));
