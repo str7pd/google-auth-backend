@@ -1,14 +1,20 @@
-const express = require("express");
-const cors = require("cors");
-const { OAuth2Client } = require("google-auth-library");
-const admin = require("firebase-admin");
+import express from "express";
+import cors from "cors";
+import { OAuth2Client } from "google-auth-library";
+import admin from "firebase-admin";
+import fs from "fs";
+
+// Read your Firebase service account key
+const serviceAccount = JSON.parse(
+  fs.readFileSync("./serviceAccountKey.json", "utf8")
+);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 admin.initializeApp({
-  credential: admin.credential.cert(require("./serviceAccountKey.json")),
+  credential: admin.credential.cert(serviceAccount),
 });
 
 const client = new OAuth2Client(
