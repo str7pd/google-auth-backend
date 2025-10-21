@@ -3,7 +3,11 @@ import express from "express";
 import cors from "cors";
 import { OAuth2Client } from "google-auth-library";
 import admin from "firebase-admin";
-import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
+import fs from "fs";
+
+const serviceAccount = JSON.parse(
+  fs.readFileSync("./serviceAccountKey.json", "utf8")
+);
 
 const app = express();
 app.use(cors());
