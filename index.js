@@ -1,53 +1,47 @@
+// index.js
 import express from "express";
 import cors from "cors";
 import { OAuth2Client } from "google-auth-library";
 import admin from "firebase-admin";
-import fs from "fs";
-
-// Read your Firebase service account key
-const serviceAccount = JSON.parse(
-  fs.readFileSync("./serviceAccountKey.json", "utf8")
-);
+import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ✅ Initialize Firebase Admin
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
+// ✅ Google OAuth2 client
 const client = new OAuth2Client(
   "445520681231-v2m8ilhhecf8k4466fg8v2i5h44oi654.apps.googleusercontent.com"
 );
 
+// ✅ Root endpoint
 app.get("/", (req, res) => {
   res.send("✅ Google Auth backend is running!");
 });
 
+// ✅ Google login endpoint
 app.post("/google-login", async (req, res) => {
   try {
     console.log("=== /google-login NEW REQUEST ===");
-    console.log("Headers:", req.headers);
-    console.log("Raw body:", JSON.stringify(req.body).slice(0, 1000));
-
     const { idToken } = req.body;
-    if (!idToken) {
-      console.log("No idToken in request body");
-      return res.status(400).json({ error: "No idToken received from client" });
-    }
+
+    if (!idToken) throw new Error("No idToken received from client");
     console.log("Received idToken length:", idToken.length);
 
     const ticket = await client.verifyIdToken({
       idToken,
-      audience:
-        "445520681231-v2m8ilhhecf8k4466fg8v2i5h44oi654.apps.googleusercontent.com",
+      audience: "445520681231-v2m8ilhhecf8k4466fg8v2i5h44oi654.apps.googleusercontent.com",
     });
 
     const payload = ticket.getPayload();
-    console.log("verifyIdToken payload:", { sub: payload.sub, email: payload.email });
-
     const uid = payload.sub;
+    console.log("verifyIdToken payload:", payload);
+
     const firebaseToken = await admin.auth().createCustomToken(uid);
     console.log("Created firebase custom token length:", firebaseToken.length);
 
@@ -58,5 +52,5 @@ app.post("/google-login", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`✅ Backend running on port ${PORT}`));
