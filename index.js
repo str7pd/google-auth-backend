@@ -49,7 +49,7 @@ app.post("/google-login", async (req, res) => {
     const firebaseToken = await admin.auth().createCustomToken(uid);
     console.log("✅ Created Firebase custom token:", customToken);
 
-    console.log("Created firebase custom token length:", firebaseToken.length);
+console.log("Created firebase custom token length:", firebaseToken.length);
 
     res.json({ token: firebaseToken });
   } catch (err) {
