@@ -1,7 +1,6 @@
 {
   "name": "google-auth-backend",
   "version": "1.0.0",
-  "type": "module",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -10,10 +9,12 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "type": "commonjs",
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "firebase-admin": "^13.5.0",
-    "google-auth-library": "^10.4.1"
+    "google-auth-library": "^10.4.1",
+    "googleapis": "^164.1.0"
   }
 }
