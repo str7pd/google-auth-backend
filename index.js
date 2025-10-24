@@ -16,11 +16,10 @@ admin.initializeApp({
 
 // 🧩 Google OAuth2 setup
 const oauth2Client = new google.auth.OAuth2(
-  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",
+  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",  // ✅ no newline
   "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",
   "https://google-auth-backend-y2jp.onrender.com/auth/google/callback"
 );
-
 
 // 🌐 Step 1: Redirect user to Google login page
 app.get("/auth/google", (req, res) => {
@@ -42,8 +41,7 @@ app.get("/auth/google/callback", async (req, res) => {
     // Decode user info from id_token
     const ticket = await oauth2Client.verifyIdToken({
       idToken: tokens.id_token,
-      audience: "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com
-", // همون Client ID سرور
+      audience: "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com", // ✅ also fixed here
     });
 
     const payload = ticket.getPayload();
