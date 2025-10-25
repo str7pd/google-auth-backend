@@ -1,100 +1,84 @@
 import express from "express";
 import cors from "cors";
-import { google } from "googleapis";
+import { OAuth2Client } from "google-auth-library";
 import admin from "firebase-admin";
+import fetch from "node-fetch";
 import fs from "fs";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔐 Initialize Firebase Admin SDK
+// ✅ Initialize Firebase Admin
 const serviceAccount = JSON.parse(fs.readFileSync("./serviceAccountKey.json", "utf8"));
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-// 🧩 Google OAuth2 setup
-const oauth2Client = new google.auth.OAuth2(
-  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",
-  "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",
-  "https://google-auth-backend-y2jp.onrender.com/auth/google/callback"
+// ✅ Google Client ID (from Google Cloud Console — Web client)
+const client = new OAuth2Client(
+  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com"
 );
 
-// ✅ Health check route
-app.get("/", (req, res) => {
-  res.send("✅ Google Auth backend is running!");
-});
+// ✅ Your Firebase Web API Key (from Firebase project settings)
+const FIREBASE_API_KEY = "AIzaSyA46rckOwmj-cpVJNXrx7rdrWzdWiyx9sQ";
 
-// 🌐 Step 1: Redirect user to Google login page
-app.get("/auth/google", (req, res) => {
-  const url = oauth2Client.generateAuthUrl({
-    access_type: "offline",
-    prompt: "consent",
-    scope: ["profile", "email"],
-  });
-  res.redirect(url);
-});
-
-// 🌐 Step 2: Handle callback from Google
-app.get("/auth/google/callback", async (req, res) => {
-  try {
-    const { code } = req.query;
-    const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-
-    // Decode user info
-    const ticket = await oauth2Client.verifyIdToken({
-      idToken: tokens.id_token,
-      audience: "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",
-    });
-
-    const payload = ticket.getPayload();
-    const uid = payload.sub;
-
-    // ✅ Create Firebase custom token
-    const firebaseToken = await admin.auth().createCustomToken(uid);
-
-    // ✅ Return JSON instead of HTML
-    res.json({
-      status: "success",
-      message: "Login successful",
-      token: firebaseToken,
-      user: {
-        name: payload.name,
-        email: payload.email,
-        picture: payload.picture,
-      },
-    });
-
-  } catch (err) {
-    console.error("Login error:", err);
-    res.status(500).json({ error: "Error during Google OAuth login" });
-  }
-});
-
-// ✅ Android app direct login endpoint
+// ✅ Route for Google login
 app.post("/google-login", async (req, res) => {
   try {
     const { idToken } = req.body;
     if (!idToken) return res.status(400).json({ error: "Missing idToken" });
 
-    const ticket = await oauth2Client.verifyIdToken({
+    console.log("=== /google-login NEW REQUEST ===");
+    console.log("Received idToken length:", idToken.length);
+
+    // Verify ID token with Google
+    const ticket = await client.verifyIdToken({
       idToken,
       audience: "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",
     });
 
     const payload = ticket.getPayload();
     const uid = payload.sub;
+    console.log("✅ Google user verified:", payload.email);
 
-    const firebaseToken = await admin.auth().createCustomToken(uid);
+    // Create custom Firebase token
+    const customToken = await admin.auth().createCustomToken(uid);
+    console.log("✅ Created Firebase custom token");
 
-    res.json({ token: firebaseToken });
+    // Exchange custom token for ID token (server side)
+    const response = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${FIREBASE_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: customToken,
+          returnSecureToken: true,
+        }),
+      }
+    );
+
+    const data = await response.json();
+    if (data.error) {
+      console.error("🔥 Firebase login error:", data.error);
+      return res.status(400).json({ error: data.error.message });
+    }
+
+    console.log("✅ Firebase sign-in successful");
+    res.json({
+      firebaseIdToken: data.idToken,
+      refreshToken: data.refreshToken,
+      expiresIn: data.expiresIn,
+      email: payload.email,
+    });
   } catch (err) {
-    console.error("Error verifying token:", err);
-    res.status(400).json({ error: err.message });
+    console.error("❌ Login error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
+
+app.get("/", (req, res) => res.send("✅ Auth backend running fine!"));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
