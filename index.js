@@ -1,77 +1,68 @@
 import express from "express";
 import cors from "cors";
+import { google } from "googleapis";
 import admin from "firebase-admin";
-import fetch from "node-fetch";
 import fs from "fs";
-import { OAuth2Client } from "google-auth-library";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔐 Initialize Firebase Admin
+// 🔐 Initialize Firebase Admin SDK
 const serviceAccount = JSON.parse(fs.readFileSync("./serviceAccountKey.json", "utf8"));
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-// 🔑 Firebase Web API key (from google-services.json)
-const FIREBASE_API_KEY = "AIzaSyA46rckOwmj-cpVJNXrx7rdrWzdWiyx9sQ";
-
-// 🧩 Google OAuth2 client (use WEB CLIENT ID)
-const client = new OAuth2Client(
-  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com"
+// 🧩 Google OAuth2 setup
+const oauth2Client = new google.auth.OAuth2(
+  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",  // ✅ no newline
+  "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",
+  "https://google-auth-backend-y2jp.onrender.com/auth/google/callback"
 );
 
-// 🌐 Google login endpoint
-app.post("/google-login", async (req, res) => {
-  console.log("=== /google-login NEW REQUEST ===");
+// 🌐 Step 1: Redirect user to Google login page
+app.get("/auth/google", (req, res) => {
+  const url = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: ["profile", "email"],
+  });
+  res.redirect(url);
+});
+
+// 🌐 Step 2: Handle callback from Google
+app.get("/auth/google/callback", async (req, res) => {
   try {
-    const { idToken } = req.body;
+    const { code } = req.query;
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
 
-    if (!idToken) {
-      return res.status(400).json({ error: "No idToken provided" });
-    }
-
-    console.log("Received idToken length:", idToken.length);
-
-    // ✅ Verify ID token from Google
-    const ticket = await client.verifyIdToken({
-      idToken,
-      audience: "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",
+    // Decode user info from id_token
+    const ticket = await oauth2Client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com", // ✅ also fixed here
     });
 
     const payload = ticket.getPayload();
-    console.log("✅ Google user verified:", payload.email);
+    const uid = payload.sub;
 
-    // ✅ Create Firebase custom token
-    const firebaseToken = await admin.auth().createCustomToken(payload.sub);
-    console.log("✅ Created Firebase custom token");
+    // Create Firebase custom token
+    const firebaseToken = await admin.auth().createCustomToken(uid);
 
-    // ✅ Exchange for Firebase ID token (authorized client token)
-    const verifyUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${FIREBASE_API_KEY}`;
-
-    const firebaseRes = await fetch(verifyUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token: firebaseToken,
-        returnSecureToken: true,
-      }),
-    });
-
-    const firebaseData = await firebaseRes.json();
-
-    if (!firebaseRes.ok) {
-      console.error("🔥 Firebase login error:", firebaseData);
-      return res.status(400).json({ error: firebaseData });
-    }
-
-    console.log("✅ Firebase login success");
-    res.json({ token: firebaseData.idToken });
+    // ✅ Send Firebase token to client
+    res.send(`
+      <html>
+        <body>
+          <h2>✅ Login successful!</h2>
+          <p>Copy this token and paste it in your app:</p>
+          <textarea rows="10" cols="80">${firebaseToken}</textarea>
+        </body>
+      </html>
+    `);
   } catch (err) {
-    console.error("🔥 Server error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("Login error:", err);
+    res.status(500).send("Error during Google OAuth login.");
   }
 });
 
