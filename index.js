@@ -8,20 +8,25 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔐 Initialize Firebase Admin SDK
+// ✅ Initialize Firebase Admin
 const serviceAccount = JSON.parse(fs.readFileSync("./serviceAccountKey.json", "utf8"));
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-// 🧩 Google OAuth2 setup
+// ✅ Google OAuth2 setup
 const oauth2Client = new google.auth.OAuth2(
-  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",  // ✅ no newline
+  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",
   "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",
   "https://google-auth-backend-y2jp.onrender.com/auth/google/callback"
 );
 
-// 🌐 Step 1: Redirect user to Google login page
+// ✅ Health check
+app.get("/", (req, res) => {
+  res.send("✅ Google Auth backend is running!");
+});
+
+// ✅ Step 1: Redirect to Google Sign-In
 app.get("/auth/google", (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
@@ -31,17 +36,17 @@ app.get("/auth/google", (req, res) => {
   res.redirect(url);
 });
 
-// 🌐 Step 2: Handle callback from Google
+// ✅ Step 2: Callback from Google
 app.get("/auth/google/callback", async (req, res) => {
   try {
     const { code } = req.query;
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
-    // Decode user info from id_token
+    // Verify ID token
     const ticket = await oauth2Client.verifyIdToken({
       idToken: tokens.id_token,
-      audience: "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com", // ✅ also fixed here
+      audience: "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",
     });
 
     const payload = ticket.getPayload();
@@ -49,19 +54,20 @@ app.get("/auth/google/callback", async (req, res) => {
 
     // Create Firebase custom token
     const firebaseToken = await admin.auth().createCustomToken(uid);
+    console.log("✅ Created Firebase custom token:", firebaseToken.substring(0, 30) + "...");
 
-    // ✅ Send Firebase token to client
+    // Return token in a simple HTML response
     res.send(`
       <html>
         <body>
           <h2>✅ Login successful!</h2>
-          <p>Copy this token and paste it in your app:</p>
+          <p>Copy this Firebase token and paste it in your Android app:</p>
           <textarea rows="10" cols="80">${firebaseToken}</textarea>
         </body>
       </html>
     `);
   } catch (err) {
-    console.error("Login error:", err);
+    console.error("❌ Login error:", err);
     res.status(500).send("Error during Google OAuth login.");
   }
 });
