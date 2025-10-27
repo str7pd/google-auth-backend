@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { OAuth2Client } from "google-auth-library";
+import { google } from "googleapis";
 import admin from "firebase-admin";
 import fs from "fs";
 
@@ -14,44 +14,61 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-// ✅ Use the same Web Client ID as Android (for verifying ID tokens)
-const client = new OAuth2Client(
-  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com"
+// 🧩 Google OAuth2 setup
+const oauth2Client = new google.auth.OAuth2(
+  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com", // server web client id
+  "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", // secret
+  "https://google-auth-backend-y2jp.onrender.com/auth/google/callback" // redirect URI
 );
 
-app.get("/", (req, res) => {
-  res.send("✅ Google Auth backend is running!");
+// 🌐 Step 1: Redirect to Google login
+app.get("/auth/google", (req, res) => {
+  const url = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: ["profile", "email"],
+  });
+  res.redirect(url);
 });
 
-// ✅ Google login endpoint
-app.post("/google-login", async (req, res) => {
+// 🌐 Step 2: Handle Google callback
+app.get("/auth/google/callback", async (req, res) => {
   try {
-    console.log("=== /google-login NEW REQUEST ===");
-    const { idToken } = req.body;
-    if (!idToken) throw new Error("No idToken received from client");
+    const { code } = req.query;
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
 
-    console.log("Received idToken length:", idToken.length);
-
-    // ✅ Verify Google ID token
-    const ticket = await client.verifyIdToken({
-      idToken,
-      audience: "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com",
+    // Verify ID token from Google
+    const ticket = await oauth2Client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com", // web client id again
     });
 
     const payload = ticket.getPayload();
-    console.log("✅ Google user verified:", payload.email);
+    console.log("✅ Google verified user:", payload.email);
 
-    // ✅ Create Firebase custom token
-    const uid = payload.sub;
-    const firebaseToken = await admin.auth().createCustomToken(uid);
-    console.log("✅ Created Firebase custom token");
+    // Create Firebase custom token
+    const firebaseToken = await admin.auth().createCustomToken(payload.sub);
+    console.log("✅ Firebase token created successfully!");
 
-    res.json({ token: firebaseToken });
+    // Send it as a web page
+    res.send(`
+      <html>
+        <body style="font-family:sans-serif; padding:20px;">
+          <h2>✅ Login Successful!</h2>
+          <p>Copy this token and paste it into your app:</p>
+          <textarea rows="10" cols="80">${firebaseToken}</textarea>
+        </body>
+      </html>
+    `);
   } catch (err) {
-    console.error("🔥 Login error:", err.message);
-    res.status(400).json({ error: err.message });
+    console.error("❌ Error during Google OAuth flow:", err);
+    res.status(500).send("Error during Google OAuth login.");
   }
 });
+
+// Root test
+app.get("/", (req, res) => res.send("✅ Google Auth backend is running!"));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
