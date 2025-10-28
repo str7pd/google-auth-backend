@@ -16,7 +16,7 @@ admin.initializeApp({
 });
 
 // Google OAuth setup
-const WEB_CLIENT_ID = "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com";
+const WEB_CLIENT_ID = "445520681231-iap0aurss1b9jqg5f3ahsudcivhv96p5.apps.googleusercontent.com";
 const WEB_CLIENT_SECRET = "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";
 const REDIRECT_URI = "https://google-auth-backend-y2jp.onrender.com/auth/google/callback";
 
