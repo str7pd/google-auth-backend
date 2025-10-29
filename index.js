@@ -84,36 +84,27 @@ app.get("/auth/google/callback", async (req, res) => {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
-    // Verify ID token from Google
     const ticket = await oauth2Client.verifyIdToken({
       idToken: tokens.id_token,
-      audience: WEB_CLIENT_ID, // ⚠️ Must match Web client ID
+      audience: WEB_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
     const uid = payload.sub;
 
-    // Create Firebase custom token
     const firebaseToken = await admin.auth().createCustomToken(uid);
-    console.log("✅ Web user:", payload.email, "→ Firebase token created");
 
-    // Return Firebase token as a simple page
-    res.send(`
-      <html>
-        <body style="font-family:sans-serif;padding:24px;">
-          <h2>✅ Login Successful!</h2>
-          <p>Copy this Firebase token and paste it into your app (for testing):</p>
-          <textarea rows="10" cols="80">${firebaseToken}</textarea>
-          <br/><br/>
-          <p style="color:#888">Now you can paste this into your Android app if needed.</p>
-        </body>
-      </html>
-    `);
+    // ✅ Redirect back to app
+    const redirectUri = `mosha://auth?firebaseToken=${firebaseToken}`;
+    console.log("🌐 Redirecting to:", redirectUri);
+    res.redirect(redirectUri);
+
   } catch (err) {
-    console.error("❌ [WEB] callback error:", err);
+    console.error("callback error:", err);
     res.status(500).send("Error during Google OAuth login.");
   }
 });
+
 
 // ============================================================
 // 🚀 Start server
