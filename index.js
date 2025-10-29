@@ -1,74 +1,38 @@
+// index.js
 import express from "express";
 import cors from "cors";
-import fs from "fs";
-import { OAuth2Client } from "google-auth-library";
 import { google } from "googleapis";
 import admin from "firebase-admin";
+import fs from "fs";
+import jwt from "jsonwebtoken";
 
-// ✅ Setup Express
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ Load Firebase Admin SDK
+// ✅ Load Firebase service account
 const serviceAccount = JSON.parse(fs.readFileSync("./serviceAccountKey.json", "utf8"));
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-// ✅ Google Client IDs
-const ANDROID_CLIENT_ID = "445520681231-iap0aurss1b9jqg5f3ahsudcivhv96p5.apps.googleusercontent.com";
+// ✅ Secrets
+const SESSION_SECRET = "replace_this_with_a_long_random_secret";
+
+// ✅ Google OAuth setup
 const WEB_CLIENT_ID = "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com";
+const WEB_CLIENT_SECRET = "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";
+const REDIRECT_URI = "https://google-auth-backend-y2jp.onrender.com/auth/google/callback";
 
-// ✅ Create OAuth2 client for Web
-const oauth2Client = new google.auth.OAuth2(
-  WEB_CLIENT_ID,
-  "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",
-  "https://google-auth-backend-y2jp.onrender.com/auth/google/callback"
-);
+const oauth2Client = new google.auth.OAuth2(WEB_CLIENT_ID, WEB_CLIENT_SECRET, REDIRECT_URI);
 
-// ✅ Health Check
-app.get("/", (req, res) => res.send("✅ Google Auth backend for MOSHA is running!"));
-
-// ============================================================
-// 📱 ANDROID LOGIN
-// Receives ID token from app, verifies, and returns Firebase token
-// ============================================================
-app.post("/google-login", async (req, res) => {
-  try {
-    const { idToken } = req.body;
-    if (!idToken) throw new Error("No idToken received");
-
-    console.log("=== [ANDROID] /google-login ===");
-    console.log("Received ID Token length:", idToken.length);
-
-    // Verify Google ID token (Android flow)
-    const client = new OAuth2Client(ANDROID_CLIENT_ID);
-    const ticket = await client.verifyIdToken({
-      idToken,
-      audience: ANDROID_CLIENT_ID, // ⚠️ MUST match Android client ID
-    });
-
-    const payload = ticket.getPayload();
-    const uid = payload.sub;
-    console.log("✅ Android token verified for user:", payload.email);
-
-    // Create Firebase custom token
-    const firebaseToken = await admin.auth().createCustomToken(uid);
-    console.log("✅ Firebase custom token created (length:", firebaseToken.length, ")");
-
-    res.json({ token: firebaseToken });
-  } catch (err) {
-    console.error("❌ [ANDROID] google-login error:", err);
-    res.status(400).json({ error: err.message });
-  }
+// ✅ Root check
+app.get("/", (req, res) => {
+  res.send("✅ Secure Google Auth backend is running!");
 });
 
-// ============================================================
-// 🌍 WEB LOGIN
-// Redirects user to Google consent, verifies, and returns Firebase token
-// ============================================================
-app.get("/auth/google", (req, res) => {
+// ✅ Step 1: App tells server to start Google login
+app.get("/auth/google/mobile", (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
@@ -78,6 +42,7 @@ app.get("/auth/google", (req, res) => {
   res.redirect(url);
 });
 
+// ✅ Step 2: Google calls back after user chooses account
 app.get("/auth/google/callback", async (req, res) => {
   try {
     const { code } = req.query;
@@ -92,22 +57,47 @@ app.get("/auth/google/callback", async (req, res) => {
     const payload = ticket.getPayload();
     const uid = payload.sub;
 
-    const firebaseToken = await admin.auth().createCustomToken(uid);
+    console.log(`✅ Web user: ${payload.email} → Firebase user ensuring...`);
 
-    // ✅ Redirect back to app
-    const redirectUri = `mosha://auth?firebaseToken=${firebaseToken}`;
-    console.log("🌐 Redirecting to:", redirectUri);
-    res.redirect(redirectUri);
+    // ✅ Ensure user exists in Firebase
+    const userRecord =
+      (await admin.auth().getUser(uid).catch(() => null)) ||
+      (await admin.auth().createUser({
+        uid,
+        email: payload.email,
+        displayName: payload.name,
+        photoURL: payload.picture,
+      }));
 
+    // ✅ Create your own session token (not Firebase token)
+    const sessionToken = jwt.sign(
+      {
+        uid: userRecord.uid,
+        email: userRecord.email,
+      },
+      SESSION_SECRET,
+      { expiresIn: "2h" }
+    );
+
+    console.log("✅ Created session token, redirecting back to app...");
+    // redirect back to Android app with the session token
+    res.redirect(`mosha://auth?sessionToken=${sessionToken}`);
   } catch (err) {
-    console.error("callback error:", err);
+    console.error("❌ Google OAuth callback error:", err);
     res.status(500).send("Error during Google OAuth login.");
   }
 });
 
+// ✅ Step 3: Endpoint to verify session token (for app API calls)
+app.post("/verify-session", (req, res) => {
+  const { token } = req.body;
+  try {
+    const decoded = jwt.verify(token, SESSION_SECRET);
+    res.json({ valid: true, uid: decoded.uid, email: decoded.email });
+  } catch (err) {
+    res.status(401).json({ valid: false, error: "Invalid or expired token" });
+  }
+});
 
-// ============================================================
-// 🚀 Start server
-// ============================================================
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Secure backend running on port ${PORT}`));
