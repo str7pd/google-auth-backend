@@ -26,10 +26,11 @@ app.use(cors());
 app.use(express.json());
 
 // ✅ Load Firebase service account
-const serviceAccount = JSON.parse(fs.readFileSync("./serviceAccountKey.json", "utf8"));
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
+
 
 // ✅ Secrets
 const SESSION_SECRET = "replace_this_with_a_long_random_secret";
