@@ -6,6 +6,8 @@ import admin from "firebase-admin";
 import fs from "fs";
 import jwt from "jsonwebtoken";
 
+console.log("🕒 Server time:", new Date().toISOString());
+
 const app = express();
 app.use(cors());
 app.use(express.json());
