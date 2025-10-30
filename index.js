@@ -5,7 +5,20 @@ import { google } from "googleapis";
 import admin from "firebase-admin";
 import fs from "fs";
 import jwt from "jsonwebtoken";
+// Check Google time
+import fetch from "node-fetch";
 
+(async () => {
+  try {
+    const res = await fetch("https://www.google.com");
+    const dateHeader = res.headers.get("date");
+    console.log("🌍 Google time:", dateHeader);
+    console.log("🕒 Server time:", new Date().toUTCString());
+  } catch (err) {
+    console.error("⚠️ Could not fetch Google time", err);
+  }
+})();
+// Check server time
 console.log("🕒 Server time:", new Date().toISOString());
 
 const app = express();
