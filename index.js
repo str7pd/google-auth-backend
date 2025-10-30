@@ -33,7 +33,7 @@ admin.initializeApp({
 
 
 // ✅ Secrets
-const SESSION_SECRET = "replace_this_with_a_long_random_secret";
+const SESSION_SECRET = process.env.SESSION_SECRET;
 
 // ✅ Google OAuth setup
 const WEB_CLIENT_ID = "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com";
