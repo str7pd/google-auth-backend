@@ -5,9 +5,9 @@ import { google } from "googleapis";
 import admin from "firebase-admin";
 import fs from "fs";
 import jwt from "jsonwebtoken";
-// Check Google time
-import fetch from "node-fetch";
+import fetch from "node-fetch"; // For time check
 
+// 🌍 Time check (optional but helpful for debugging)
 (async () => {
   try {
     const res = await fetch("https://www.google.com");
@@ -18,24 +18,21 @@ import fetch from "node-fetch";
     console.error("⚠️ Could not fetch Google time", err);
   }
 })();
-// Check server time
-console.log("🕒 Server time:", new Date().toISOString());
+console.log("🕒 Server start time:", new Date().toISOString());
 
+// ✅ Express setup
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ Load Firebase service account
+// ✅ Load Firebase service account (stored as an environment variable)
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-
-// ✅ Secrets
-const SESSION_SECRET = process.env.SESSION_SECRET;
-
-// ✅ Google OAuth setup
+// ✅ Environment secrets
+const SESSION_SECRET = process.env.SESSION_SECRET || "dev_secret_fallback";
 const WEB_CLIENT_ID = "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com";
 const WEB_CLIENT_SECRET = process.env.WEB_CLIENT_SECRET;
 const REDIRECT_URI = "https://google-auth-backend-y2jp.onrender.com/auth/google/callback";
@@ -47,7 +44,7 @@ app.get("/", (req, res) => {
   res.send("✅ Secure Google Auth backend is running!");
 });
 
-// ✅ Step 1: App tells server to start Google login
+// ✅ Step 1: Mobile app requests login → redirect to Google
 app.get("/auth/google/mobile", (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
@@ -58,26 +55,19 @@ app.get("/auth/google/mobile", (req, res) => {
   res.redirect(url);
 });
 
+// ✅ Step 2: Google calls back after user chooses account
 app.get("/auth/google/callback", async (req, res) => {
   try {
-    console.log("🔍 Full callback query:", req.query);
-
     const { code } = req.query;
     if (!code) {
       throw new Error("Missing ?code in callback URL — check redirect URI & OAuth config");
     }
 
-    const { tokens } = await oauth2Client.getToken(code);
-    // ...
-
-
-// ✅ Step 2: Google calls back after user chooses account
-app.get("/auth/google/callback", async (req, res) => {
-  try {
-    const { code } = req.query;
+    // Exchange code for tokens
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
+    // Verify Google ID token
     const ticket = await oauth2Client.verifyIdToken({
       idToken: tokens.id_token,
       audience: WEB_CLIENT_ID,
@@ -86,7 +76,7 @@ app.get("/auth/google/callback", async (req, res) => {
     const payload = ticket.getPayload();
     const uid = payload.sub;
 
-    console.log(`✅ Web user: ${payload.email} → Firebase user ensuring...`);
+    console.log(`✅ Web user: ${payload.email} → Ensuring Firebase user...`);
 
     // ✅ Ensure user exists in Firebase
     const userRecord =
@@ -98,7 +88,7 @@ app.get("/auth/google/callback", async (req, res) => {
         photoURL: payload.picture,
       }));
 
-    // ✅ Create your own session token (not Firebase token)
+    // ✅ Create secure session token (JWT)
     const sessionToken = jwt.sign(
       {
         uid: userRecord.uid,
@@ -109,7 +99,6 @@ app.get("/auth/google/callback", async (req, res) => {
     );
 
     console.log("✅ Created session token, redirecting back to app...");
-    // redirect back to Android app with the session token
     res.redirect(`mosha://auth?sessionToken=${sessionToken}`);
   } catch (err) {
     console.error("❌ Google OAuth callback error:", err);
@@ -117,7 +106,7 @@ app.get("/auth/google/callback", async (req, res) => {
   }
 });
 
-// ✅ Step 3: Endpoint to verify session token (for app API calls)
+// ✅ Step 3: Verify session token (for app API requests)
 app.post("/verify-session", (req, res) => {
   const { token } = req.body;
   try {
@@ -128,5 +117,6 @@ app.post("/verify-session", (req, res) => {
   }
 });
 
+// ✅ Start server
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`✅ Secure backend running on port ${PORT}`));
