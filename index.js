@@ -58,6 +58,19 @@ app.get("/auth/google/mobile", (req, res) => {
   res.redirect(url);
 });
 
+app.get("/auth/google/callback", async (req, res) => {
+  try {
+    console.log("🔍 Full callback query:", req.query);
+
+    const { code } = req.query;
+    if (!code) {
+      throw new Error("Missing ?code in callback URL — check redirect URI & OAuth config");
+    }
+
+    const { tokens } = await oauth2Client.getToken(code);
+    // ...
+
+
 // ✅ Step 2: Google calls back after user chooses account
 app.get("/auth/google/callback", async (req, res) => {
   try {
