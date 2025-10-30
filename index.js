@@ -47,10 +47,12 @@ app.get("/", (req, res) => {
 // ✅ Step 1: Mobile app requests login → redirect to Google
 app.get("/auth/google/mobile", (req, res) => {
   const url = oauth2Client.generateAuthUrl({
-    access_type: "offline",
-    prompt: "consent",
-    scope: ["profile", "email"],
-  });
+  access_type: "offline",
+  prompt: "consent",
+  scope: ["profile", "email"],
+  redirect_uri: REDIRECT_URI, // ✅ force match
+});
+
   console.log("🌐 Redirecting to Google OAuth:", url);
   res.redirect(url);
 });
