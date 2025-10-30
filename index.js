@@ -37,7 +37,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 
 // ✅ Google OAuth setup
 const WEB_CLIENT_ID = "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com";
-const WEB_CLIENT_SECRET = "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";
+const WEB_CLIENT_SECRET = process.env.WEB_CLIENT_SECRET;
 const REDIRECT_URI = "https://google-auth-backend-y2jp.onrender.com/auth/google/callback";
 
 const oauth2Client = new google.auth.OAuth2(WEB_CLIENT_ID, WEB_CLIENT_SECRET, REDIRECT_URI);
