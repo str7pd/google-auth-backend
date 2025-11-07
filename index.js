@@ -91,14 +91,10 @@ app.get("/auth/google/callback", async (req, res) => {
       }));
 
     // ✅ Create secure session token (JWT)
-    const sessionToken = jwt.sign(
-      {
-        uid: userRecord.uid,
-        email: userRecord.email,
-      },
-      SESSION_SECRET,
-      { expiresIn: "2h" }
-    );
+    // ✅ New: Create a Firebase custom token
+const firebaseCustomToken = await admin.auth().createCustomToken(userRecord.uid);
+res.redirect(`mosha://auth?firebaseToken=${firebaseCustomToken}`);
+
 
     console.log("✅ Created session token, redirecting back to app...");
     res.redirect(`mosha://auth?sessionToken=${sessionToken}`);
