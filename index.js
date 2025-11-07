@@ -97,7 +97,6 @@ res.redirect(`mosha://auth?firebaseToken=${firebaseCustomToken}`);
 
 
     console.log("✅ Created session token, redirecting back to app...");
-    res.redirect(`mosha://auth?sessionToken=${sessionToken}`);
   } catch (err) {
     console.error("❌ Google OAuth callback error:", err);
     res.status(500).send("Error during Google OAuth login.");
