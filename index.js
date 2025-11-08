@@ -113,6 +113,28 @@ app.post("/verify-session", (req, res) => {
     res.status(401).json({ valid: false, error: "Invalid or expired token" });
   }
 });
+app.post("/mobile/verifyToken", async (req, res) => {
+  const { firebaseToken } = req.body;
+  try {
+    // Verify the custom token using Admin SDK
+    const decoded = await admin.auth().verifyIdToken(firebaseToken);
+
+    // Create your own session cookie for the app
+    const sessionCookie = await admin.auth().createSessionCookie(firebaseToken, {
+      expiresIn: 1000 * 60 * 60 * 24 * 7, // 7 days
+    });
+
+    res.json({
+      status: "ok",
+      session: sessionCookie,
+      user: decoded,
+    });
+  } catch (err) {
+    console.error("❌ verifyToken failed:", err);
+    res.status(401).json({ status: "error", message: err.message });
+  }
+});
+
 
 // ✅ Start server
 const PORT = process.env.PORT || 10000;
