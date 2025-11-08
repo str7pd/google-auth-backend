@@ -39,6 +39,13 @@ const REDIRECT_URI = "https://google-auth-backend-y2jp.onrender.com/auth/google/
 
 const oauth2Client = new google.auth.OAuth2(WEB_CLIENT_ID, WEB_CLIENT_SECRET, REDIRECT_URI);
 
+function generateSessionForUser(email) {
+  // You can make your own JWT, UUID, or store a session in DB
+  const random = Math.random().toString(36).substring(2, 12);
+  return Buffer.from(`${email}:${random}`).toString("base64");
+}
+
+
 // ✅ Root check
 app.get("/", (req, res) => {
   res.send("✅ Secure Google Auth backend is running!");
@@ -92,8 +99,9 @@ app.get("/auth/google/callback", async (req, res) => {
 
     // ✅ Create secure session token (JWT)
     // ✅ New: Create a Firebase custom token
-const firebaseCustomToken = await admin.auth().createCustomToken(userRecord.uid);
-res.redirect(`mosha://auth?firebaseToken=${firebaseCustomToken}`);
+const googleIdToken = tokens.id_token;
+res.redirect(`mosha://auth?firebaseToken=${googleIdToken}`);
+
 
 
     console.log("✅ Created session token, redirecting back to app...");
