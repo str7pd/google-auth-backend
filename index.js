@@ -115,17 +115,16 @@ app.post("/verify-session", (req, res) => {
 });
 app.post("/mobile/verifyToken", async (req, res) => {
   const { firebaseToken } = req.body;
-  try {
-    // ✅ Verify Firebase custom token by exchanging it for a session cookie
-    const decoded = await admin.auth().verifyIdToken(firebaseToken).catch(() => null);
-    if (!decoded) {
-      return res.status(401).json({ status: "error", message: "Invalid Firebase ID token" });
-    }
 
-    // ✅ Create your own session cookie for persistent auth
+  try {
+    // ✅ 1. Verify the Firebase custom token and create a session cookie
+    const decoded = await admin.auth().verifyIdToken(firebaseToken);
+
+    // ✅ 2. Create a session cookie valid for 7 days
     const expiresIn = 1000 * 60 * 60 * 24 * 7; // 7 days
     const sessionCookie = await admin.auth().createSessionCookie(firebaseToken, { expiresIn });
 
+    // ✅ 3. Send session + user info to app
     res.json({
       status: "ok",
       session: sessionCookie,
