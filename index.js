@@ -113,18 +113,19 @@ app.post("/verify-session", (req, res) => {
     res.status(401).json({ valid: false, error: "Invalid or expired token" });
   }
 });
+
 app.post("/mobile/verifyToken", async (req, res) => {
   const { firebaseToken } = req.body;
 
   try {
-    // ✅ 1. Verify the Firebase custom token and create a session cookie
-    const decoded = await admin.auth().verifyIdToken(firebaseToken);
+    // Step 1: Sign in the custom token by creating a session cookie
+    const sessionCookie = await admin.auth().createSessionCookie(firebaseToken, {
+      expiresIn: 1000 * 60 * 60 * 24 * 7, // 7 days
+    });
 
-    // ✅ 2. Create a session cookie valid for 7 days
-    const expiresIn = 1000 * 60 * 60 * 24 * 7; // 7 days
-    const sessionCookie = await admin.auth().createSessionCookie(firebaseToken, { expiresIn });
+    // Step 2: Decode it to extract user info
+    const decoded = await admin.auth().verifySessionCookie(sessionCookie, true);
 
-    // ✅ 3. Send session + user info to app
     res.json({
       status: "ok",
       session: sessionCookie,
@@ -135,6 +136,7 @@ app.post("/mobile/verifyToken", async (req, res) => {
     res.status(401).json({ status: "error", message: err.message });
   }
 });
+
 
 
 
