@@ -115,25 +115,37 @@ app.post("/verify-session", (req, res) => {
 });
 
 app.post("/mobile/verifyToken", async (req, res) => {
-  const { firebaseToken } = req.body;
-
+  const { firebaseToken } = req.body; // actually a Google ID token
   try {
-    // Step 1: Sign in the custom token by creating a session cookie
-    const sessionCookie = await admin.auth().createSessionCookie(firebaseToken, {
-      expiresIn: 1000 * 60 * 60 * 24 * 7, // 7 days
+    // ✅ Step 1: Verify Google token directly with Google
+    const verifyUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${firebaseToken}`;
+    const googleResponse = await fetch(verifyUrl);
+    if (!googleResponse.ok) {
+      throw new Error("Invalid Google ID token");
+    }
+
+    const googleUser = await googleResponse.json();
+    // googleUser will contain fields like email, name, sub (Google user id)
+
+    // ✅ Step 2: Create a Firebase custom token (optional)
+    const uid = `google_${googleUser.sub}`;
+    const firebaseCustomToken = await admin.auth().createCustomToken(uid, {
+      email: googleUser.email,
+      name: googleUser.name,
     });
 
-    // Step 2: Decode it to extract user info
-    const decoded = await admin.auth().verifySessionCookie(sessionCookie, true);
+    // ✅ Step 3: Create your own app session token
+    const sessionToken = generateSessionForUser(googleUser.email);
 
     res.json({
       status: "ok",
-      session: sessionCookie,
-      user: decoded,
+      session: sessionToken,
+      firebaseCustomToken, // optional: send if you want client Firebase login later
     });
+
   } catch (err) {
     console.error("❌ verifyToken failed:", err);
-    res.status(401).json({ status: "error", message: err.message });
+    res.json({ status: "error", message: err.message });
   }
 });
 
