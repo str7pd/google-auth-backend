@@ -117,7 +117,7 @@ app.post("/mobile/verifyToken", async (req, res) => {
   const { firebaseToken } = req.body;
   try {
     // Verify the custom token using Admin SDK
-    const decoded = await admin.auth().verifyIdToken(firebaseToken);
+const decoded = await admin.auth().verifySessionCookie(token, true);
 
     // Create your own session cookie for the app
     const sessionCookie = await admin.auth().createSessionCookie(firebaseToken, {
