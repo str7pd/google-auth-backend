@@ -156,8 +156,51 @@ app.post("/mobile/verifyToken", async (req, res) => {
     res.json({ status: "error", message: err.message });
   }
 });
+// utils
+async function verifySession(authHeader) {
+  if (!authHeader?.startsWith("Bearer ")) throw new Error("Missing token");
+  const token = authHeader.split(" ")[1];
+  const decoded = jwt.verify(token, SESSION_SECRET);
+  return decoded; // { email, uid, ... }
+}
 
+app.get("/chat/getMessages", async (req, res) => {
+  try {
+    const user = await verifySession(req.headers.authorization);
+    const snapshot = await admin.firestore()
+      .collection("users")
+      .doc(user.uid)
+      .collection("chats")
+      .orderBy("timestamp", "asc")
+      .get();
 
+    const messages = snapshot.docs.map(doc => doc.data());
+    res.json(messages);
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
+app.post("/chat/sendMessage", async (req, res) => {
+  try {
+    const user = await verifySession(req.headers.authorization);
+    const { message } = req.body;
+
+    await admin.firestore()
+      .collection("users")
+      .doc(user.uid)
+      .collection("chats")
+      .add({
+        sender: user.email,
+        message,
+        timestamp: Date.now(),
+      });
+
+    res.json({ status: "ok" });
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
 
 
 // ✅ Start server
