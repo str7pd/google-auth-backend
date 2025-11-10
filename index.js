@@ -6,7 +6,20 @@ import admin from "firebase-admin";
 import fs from "fs";
 import jwt from "jsonwebtoken";
 import fetch from "node-fetch"; // For time check
+import OpenAI from "openai";
+import admin from "firebase-admin";
+import express from "express";
 
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+admin.initializeApp({
+  credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))
+});
+
+const db = admin.firestore();
+const app = express();
+app.use(express.json());
 // 🌍 Time check (optional but helpful for debugging)
 (async () => {
   try {
@@ -201,6 +214,52 @@ app.post("/chat/sendMessage", async (req, res) => {
     res.status(401).json({ error: err.message });
   }
 });
+
+app.post("/chat", async (req, res) => {
+  try {
+    const { sessionToken, prompt } = req.body;
+
+    // 1️⃣ Verify user session
+    const user = await verifySession(sessionToken); // your existing verify function
+    if (!user) return res.status(401).json({ reply: "Unauthorized" });
+
+    const uid = user.uid;
+
+    // 2️⃣ Save user message in Firestore
+    const userMsg = {
+      senderId: uid,
+      senderName: user.email || "User",
+      message: prompt,
+      timestamp: Date.now(),
+      role: "user"
+    };
+    await db.collection("users").doc(uid).collection("chats").add(userMsg);
+
+    // 3️⃣ Get GPT reply
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }]
+    });
+    const reply = completion.choices[0].message.content;
+
+    // 4️⃣ Save GPT reply in Firestore
+    const aiMsg = {
+      senderId: "gpt",
+      senderName: "Mosha AI",
+      message: reply,
+      timestamp: Date.now(),
+      role: "assistant"
+    };
+    await db.collection("users").doc(uid).collection("chats").add(aiMsg);
+
+    // 5️⃣ Send back reply
+    res.json({ reply });
+  } catch (err) {
+    console.error("Chat route error:", err);
+    res.status(500).json({ reply: "Server error" });
+  }
+});
+
 
 
 // ✅ Start server
