@@ -7,7 +7,6 @@ import fs from "fs";
 import jwt from "jsonwebtoken";
 import fetch from "node-fetch"; // For time check
 import OpenAI from "openai";
-import admin from "firebase-admin";
 import express from "express";
 
 
