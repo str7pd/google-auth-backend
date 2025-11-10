@@ -7,7 +7,6 @@ import fs from "fs";
 import jwt from "jsonwebtoken";
 import fetch from "node-fetch"; // For time check
 import OpenAI from "openai";
-import express from "express";
 
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
