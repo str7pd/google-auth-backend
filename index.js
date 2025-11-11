@@ -97,15 +97,28 @@ app.get("/auth/google/callback", async (req, res) => {
 
     // Ensure Firebase user exists (server-side)
     // Use Google sub as stable uid
-    const uid = payload.sub;
-    const userRecord =
-      (await admin.auth().getUser(uid).catch(() => null)) ||
-      (await admin.auth().createUser({
-        uid,
-        email: payload.email,
-        displayName: payload.name,
-        photoURL: payload.picture,
-      }));
+    let userRecord;
+
+try {
+  // Try to get user by UID first
+  userRecord = await admin.auth().getUser(uid);
+} catch (err) {
+  // If not found, try by email (in case user already exists with another UID)
+  const existingByEmail = await admin.auth().getUserByEmail(googleUser.email).catch(() => null);
+
+  if (existingByEmail) {
+    userRecord = existingByEmail;
+  } else {
+    // Otherwise create new one
+    userRecord = await admin.auth().createUser({
+      uid,
+      email: googleUser.email,
+      displayName: googleUser.name,
+      photoURL: googleUser.picture,
+    });
+  }
+}
+
 
     // Redirect to deep link with google id token (the mobile app will send it to /mobile/verifyToken)
     const googleIdToken = tokens.id_token;
