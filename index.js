@@ -144,14 +144,28 @@ app.post("/mobile/verifyToken", async (req, res) => {
     const uid = `google_${googleUser.sub}`; // internal UID to use in Firestore
 
     // Ensure Firebase user exists (server-side)
-    const userRecord =
-      (await admin.auth().getUser(uid).catch(() => null)) ||
-      (await admin.auth().createUser({
-        uid,
-        email: googleUser.email,
-        displayName: googleUser.name,
-        photoURL: googleUser.picture,
-      }));
+    let userRecord;
+
+// Try to get user by UID first
+userRecord = await admin.auth().getUser(uid).catch(() => null);
+
+if (!userRecord) {
+  // Try to get user by email (if already exists)
+  const existingByEmail = await admin.auth().getUserByEmail(googleUser.email).catch(() => null);
+
+  if (existingByEmail) {
+    userRecord = existingByEmail;
+  } else {
+    // Otherwise create a new one
+    userRecord = await admin.auth().createUser({
+      uid,
+      email: googleUser.email,
+      displayName: googleUser.name,
+      photoURL: googleUser.picture,
+    });
+  }
+}
+
 
     // Create and persist server session token
     const sessionToken = generateSessionToken();
