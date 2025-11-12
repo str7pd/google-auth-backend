@@ -130,14 +130,12 @@ app.get("/auth/google/callback", async (req, res) => {
 
 
 // Step 3: App posts the Google ID token here. Server validates it with Google and issues server session.
-// Step 3: App posts the Google ID token here. Server validates it with Google and issues server session.
 app.post("/mobile/verifyToken", async (req, res) => {
   const { firebaseToken } = req.body;
   if (!firebaseToken)
     return res.status(400).json({ success: false, message: "Missing token" });
 
   try {
-    // Verify Google ID token directly
     const verifyUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(firebaseToken)}`;
     const googleResponse = await fetch(verifyUrl);
     if (!googleResponse.ok) throw new Error("Invalid Google ID token");
@@ -145,7 +143,6 @@ app.post("/mobile/verifyToken", async (req, res) => {
     const googleUser = await googleResponse.json();
     const uid = `google_${googleUser.sub}`;
 
-    // Ensure Firebase user exists
     let userRecord;
     try {
       userRecord = await admin.auth().getUser(uid);
@@ -163,7 +160,6 @@ app.post("/mobile/verifyToken", async (req, res) => {
       }
     }
 
-    // ✅ Create and store session token
     const sessionToken = generateSessionToken();
     await db.collection(SESSION_COLLECTION).doc(uid).set({
       sessionToken,
@@ -178,7 +174,6 @@ app.post("/mobile/verifyToken", async (req, res) => {
       uid,
       message: "Login successful",
     });
-
   } catch (err) {
     console.error("❌ verifyToken failed:", err);
     res.json({
