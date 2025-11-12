@@ -84,43 +84,42 @@ app.get("/auth/google/callback", async (req, res) => {
     const { code } = req.query;
     if (!code) throw new Error("Missing ?code in callback URL");
 
+    // Exchange code for tokens
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
+    // Verify ID token to get Google user info
     const ticket = await oauth2Client.verifyIdToken({
       idToken: tokens.id_token,
       audience: WEB_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
+    const uid = `google_${payload.sub}`; // stable UID based on Google sub
     console.log("✅ Google user:", payload.email);
 
-    // Ensure Firebase user exists (server-side)
-    // Use Google sub as stable uid
+    // Ensure Firebase user exists
     let userRecord;
+    try {
+      userRecord = await admin.auth().getUser(uid);
+    } catch (err) {
+      // If not found, check by email
+      const existingByEmail = await admin.auth().getUserByEmail(payload.email).catch(() => null);
 
-try {
-  // Try to get user by UID first
-  userRecord = await admin.auth().getUser(uid);
-} catch (err) {
-  // If not found, try by email (in case user already exists with another UID)
-  const existingByEmail = await admin.auth().getUserByEmail(googleUser.email).catch(() => null);
+      if (existingByEmail) {
+        userRecord = existingByEmail;
+      } else {
+        // Otherwise create a new Firebase user
+        userRecord = await admin.auth().createUser({
+          uid,
+          email: payload.email,
+          displayName: payload.name,
+          photoURL: payload.picture,
+        });
+      }
+    }
 
-  if (existingByEmail) {
-    userRecord = existingByEmail;
-  } else {
-    // Otherwise create new one
-    userRecord = await admin.auth().createUser({
-      uid,
-      email: googleUser.email,
-      displayName: googleUser.name,
-      photoURL: googleUser.picture,
-    });
-  }
-}
-
-
-    // Redirect to deep link with google id token (the mobile app will send it to /mobile/verifyToken)
+    // ✅ Redirect back to app with the Google ID token
     const googleIdToken = tokens.id_token;
     res.redirect(`mosha://auth?firebaseToken=${googleIdToken}`);
   } catch (err) {
@@ -128,6 +127,7 @@ try {
     res.status(500).send("Error during Google OAuth login.");
   }
 });
+
 
 // Step 3: App posts the Google ID token here. Server validates it with Google and issues server session.
 app.post("/mobile/verifyToken", async (req, res) => {
