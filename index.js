@@ -204,16 +204,10 @@ app.post("/mobile/verifyToken", async (req, res) => {
   uid,
   message: "Login successful"
 });
-res.json({
-  success: false,
-  message: err.message || "Verification failed"
-});
-
-  } catch (err) {
+   catch (err) {
     console.error("❌ verifyToken failed:", err);
     res.json({ status: "error", message: err.message });
-  }
-});
+};
 
 // Endpoint to verify session (optional)
 app.post("/verify-session", async (req, res) => {
