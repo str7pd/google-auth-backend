@@ -180,11 +180,16 @@ if (!userRecord) {
     // const firebaseCustomToken = await admin.auth().createCustomToken(uid);
 
     res.json({
-      status: "ok",
-      session: sessionToken,
-      uid,
-      // firebaseCustomToken
-    });
+  success: true,
+  token: sessionToken,
+  uid,
+  message: "Login successful"
+});
+res.json({
+  success: false,
+  message: err.message || "Verification failed"
+});
+
   } catch (err) {
     console.error("❌ verifyToken failed:", err);
     res.json({ status: "error", message: err.message });
