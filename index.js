@@ -185,27 +185,6 @@ app.post("/mobile/verifyToken", async (req, res) => {
 
 
 
-
-    // Create and persist server session token
-    const sessionToken = generateSessionToken();
-    await db.collection(SESSION_COLLECTION).doc(uid).set({
-      sessionToken,
-      uid,
-      email: googleUser.email,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    // Optionally create a Firebase custom token (if you want client to sign into Firebase — but per rule you don't)
-    // const firebaseCustomToken = await admin.auth().createCustomToken(uid);
-
-    res.json({
-  success: true,
-  token: sessionToken,
-  uid,
-  message: "Login successful"
-});
-
-
 // Endpoint to verify session (optional)
 app.post("/verify-session", async (req, res) => {
   try {
