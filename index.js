@@ -131,40 +131,57 @@ app.get("/auth/google/callback", async (req, res) => {
 
 // Step 3: App posts the Google ID token here. Server validates it with Google and issues server session.
 app.post("/mobile/verifyToken", async (req, res) => {
-  const { firebaseToken } = req.body; // actually Google ID token from redirect
-  if (!firebaseToken) return res.status(400).json({ status: "error", message: "Missing token" });
+  const { firebaseToken } = req.body;
+  if (!firebaseToken) return res.status(400).json({ success: false, message: "Missing token" });
 
   try {
-    // Verify Google ID token with Google's tokeninfo endpoint
     const verifyUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(firebaseToken)}`;
     const googleResponse = await fetch(verifyUrl);
     if (!googleResponse.ok) throw new Error("Invalid Google ID token");
 
-    const googleUser = await googleResponse.json(); // contains email, sub, etc.
-    const uid = `google_${googleUser.sub}`; // internal UID to use in Firestore
+    const googleUser = await googleResponse.json();
+    const uid = `google_${googleUser.sub}`;
 
-    // Ensure Firebase user exists (server-side)
     let userRecord;
+    try {
+      userRecord = await admin.auth().getUser(uid);
+    } catch {
+      const existingByEmail = await admin.auth().getUserByEmail(googleUser.email).catch(() => null);
+      if (existingByEmail) {
+        userRecord = existingByEmail;
+      } else {
+        userRecord = await admin.auth().createUser({
+          uid,
+          email: googleUser.email,
+          displayName: googleUser.name,
+          photoURL: googleUser.picture,
+        });
+      }
+    }
 
-// Try to get user by UID first
-userRecord = await admin.auth().getUser(uid).catch(() => null);
-
-if (!userRecord) {
-  // Try to get user by email (if already exists)
-  const existingByEmail = await admin.auth().getUserByEmail(googleUser.email).catch(() => null);
-
-  if (existingByEmail) {
-    userRecord = existingByEmail;
-  } else {
-    // Otherwise create a new one
-    userRecord = await admin.auth().createUser({
+    const sessionToken = generateSessionToken();
+    await db.collection("sessions").doc(uid).set({
+      sessionToken,
       uid,
       email: googleUser.email,
-      displayName: googleUser.name,
-      photoURL: googleUser.picture,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.json({
+      success: true,
+      token: sessionToken,
+      uid,
+      message: "Login successful"
+    });
+  } catch (err) {
+    console.error("❌ verifyToken failed:", err);
+    res.json({
+      success: false,
+      message: err.message || "Server verification failed"
     });
   }
-}
+});
+
 
 
     // Create and persist server session token
