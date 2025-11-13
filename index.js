@@ -284,50 +284,84 @@ app.post("/chat/sendMessage", async (req, res) => {
   }
 });
 
-// Full chat route: server verifies session, saves user message, calls OpenAI, saves reply, returns reply
-app.post("/chat", async (req, res) => {
+// POST /chat/create
+// POST /chat/create  (fast ACK + async OpenAI processing)
+app.post("/chat/create", async (req, res) => {
   try {
-    const sessionToken = extractSessionTokenFromReq(req) || req.body.sessionToken;
+    // Accept Authorization: Bearer <sessionToken> OR body.sessionToken
+    const sessionToken = extractSessionTokenFromReq(req);
     const uidFromBody = req.body.uid;
     const prompt = req.body.prompt || req.body.message;
-    if (!prompt) return res.status(400).json({ error: "Missing prompt" });
+    if (!sessionToken || !uidFromBody || !prompt) {
+      return res.status(400).json({ ok: false, error: "Missing fields" });
+    }
 
+    // Validate session (throws if invalid)
     const session = await verifySessionByToken(sessionToken, uidFromBody);
     const userUid = session.uid;
 
-    // 1) Save user message
+    // Get reference to user's chats subcollection
+    const chatsRef = db.collection("users").doc(userUid).collection("chats");
+
+    // Create a new doc id (requestId) and write user message with status "pending"
+    const newDocRef = chatsRef.doc();
+    const requestId = newDocRef.id;
     const userMsg = {
+      id: requestId,
       senderId: userUid,
       senderName: session.email || "User",
       message: prompt,
       timestamp: Date.now(),
       role: "user",
+      status: "pending",    // important
+      requestId: requestId
     };
-    await db.collection("users").doc(userUid).collection("chats").add(userMsg);
 
-    // 2) Call OpenAI (server-side)
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-    });
+    await newDocRef.set(userMsg);
 
-    const reply = completion.choices?.[0]?.message?.content ?? "No reply";
+    // Return ACK immediately
+    res.json({ ok: true, requestId });
 
-    // 3) Save AI reply
-    const aiMsg = {
-      senderId: "gpt",
-      senderName: "Mosha AI",
-      message: reply,
-      timestamp: Date.now(),
-      role: "assistant",
-    };
-    await db.collection("users").doc(userUid).collection("chats").add(aiMsg);
+    // Fire-and-forget: call OpenAI asynchronously and write assistant reply
+    (async () => {
+      try {
+        // mark processing
+        await newDocRef.update({ status: "processing", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
 
-    // 4) Return reply to app
-    res.json({ reply });
+        // call OpenAI
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: prompt }],
+        });
+
+        const reply = completion.choices?.[0]?.message?.content ?? "No reply";
+
+        // Save assistant message (include requestId to allow client matching)
+        await chatsRef.add({
+          senderId: "gpt",
+          senderName: "Mosha AI",
+          message: reply,
+          timestamp: Date.now(),
+          role: "assistant",
+          status: "done",
+          requestId: requestId
+        });
+
+        // Mark original user message done
+        await newDocRef.update({ status: "done", completedAt: admin.firestore.FieldValue.serverTimestamp() });
+      } catch (err) {
+        console.error("OpenAI async error:", err);
+        try {
+          await newDocRef.update({ status: "failed", error: err.message || "OpenAI error", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+        } catch (uerr) {
+          console.error("Failed to update message failure status:", uerr);
+        }
+      }
+    })();
+
   } catch (err) {
-    console.error("❌ Chat route error:", err);
-    res.status(500).json({ error: err.message || "Server error" });
+    console.error("chat/create error:", err);
+    res.status(401).json({ ok: false, error: err.message });
   }
 });
 
