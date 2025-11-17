@@ -129,20 +129,26 @@ app.get("/auth/google/callback", async (req, res) => {
 });
 // GET /chat/result?uid=<uid>&requestId=<requestId>
 app.get("/chat/result", async (req, res) => {
+  console.log("📥 /chat/result called with query:", req.query);
   try {
     const sessionToken = extractSessionTokenFromReq(req);
     const uid = req.query.uid;
     const requestId = req.query.requestId;
+    console.log("Auth token present:", !!sessionToken, "uid:", uid, "requestId:", requestId);
+
     if (!sessionToken || !uid || !requestId) {
+      console.warn("/chat/result missing fields");
       return res.status(400).json({ ok: false, error: "Missing fields" });
     }
 
-    // Validate session (throws if invalid)
-    await verifySessionByToken(sessionToken, uid);
+    try {
+      await verifySessionByToken(sessionToken, uid);
+    } catch (err) {
+      console.error("verifySessionByToken failed:", err.message);
+      return res.status(401).json({ ok: false, error: "Invalid session" });
+    }
 
     const chatsRef = db.collection("users").doc(uid).collection("chats");
-
-    // Look for assistant reply with the given requestId
     const snapshot = await chatsRef
       .where("requestId", "==", requestId)
       .where("role", "==", "assistant")
@@ -152,15 +158,18 @@ app.get("/chat/result", async (req, res) => {
 
     if (!snapshot.empty) {
       const doc = snapshot.docs[0].data();
+      console.log("Found assistant reply for requestId:", requestId, "reply truncated:", (doc.message || "").substring(0, 300));
       return res.json({ ok: true, reply: doc.message, raw: doc });
     } else {
+      console.log("No assistant reply yet for requestId:", requestId);
       return res.json({ ok: false, pending: true });
     }
   } catch (err) {
-    console.error("chat/result error:", err);
-    res.status(401).json({ ok: false, error: err.message || "Server error" });
+    console.error("❌ /chat/result error:", err);
+    res.status(500).json({ ok: false, error: err.message || "Server error" });
   }
 });
+
 
 
 
@@ -322,25 +331,36 @@ app.post("/chat/sendMessage", async (req, res) => {
 // POST /chat/create
 // POST /chat/create  (fast ACK + async OpenAI processing)
 app.post("/chat/create", async (req, res) => {
+  console.log("📥 /chat/create called");
+  console.log("Headers:", req.headers);
+  console.log("Body:", req.body);
+
   try {
-    // Accept Authorization: Bearer <sessionToken> OR body.sessionToken
     const sessionToken = extractSessionTokenFromReq(req);
     const uidFromBody = req.body.uid;
     const prompt = req.body.prompt || req.body.message;
+
     if (!sessionToken || !uidFromBody || !prompt) {
+      console.warn("/chat/create missing fields:", { sessionTokenExists: !!sessionToken, uidFromBody, promptExists: !!prompt });
       return res.status(400).json({ ok: false, error: "Missing fields" });
     }
 
-    // Validate session (throws if invalid)
-    const session = await verifySessionByToken(sessionToken, uidFromBody);
-    const userUid = session.uid;
+    // Validate session
+    let session;
+    try {
+      session = await verifySessionByToken(sessionToken, uidFromBody);
+      console.log("Session validated for uid:", session.uid);
+    } catch (err) {
+      console.error("Session validation failed:", err.message);
+      return res.status(401).json({ ok: false, error: err.message });
+    }
 
-    // Get reference to user's chats subcollection
+    const userUid = session.uid;
     const chatsRef = db.collection("users").doc(userUid).collection("chats");
 
-    // Create a new doc id (requestId) and write user message with status "pending"
     const newDocRef = chatsRef.doc();
     const requestId = newDocRef.id;
+
     const userMsg = {
       id: requestId,
       senderId: userUid,
@@ -348,30 +368,33 @@ app.post("/chat/create", async (req, res) => {
       message: prompt,
       timestamp: Date.now(),
       role: "user",
-      status: "pending",    // important
-      requestId: requestId
+      status: "pending",
+      requestId
     };
 
+    console.log("Creating user message doc with requestId:", requestId);
     await newDocRef.set(userMsg);
+    console.log("User message saved to Firestore (pending).");
 
-    // Return ACK immediately
+    // Immediate ACK
     res.json({ ok: true, requestId });
 
-    // Fire-and-forget: call OpenAI asynchronously and write assistant reply
+    // Async processing
     (async () => {
       try {
-        // mark processing
+        console.log("Async: Marking processing for requestId:", requestId);
         await newDocRef.update({ status: "processing", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
 
-        // call OpenAI
+        console.log("Async: Calling OpenAI for requestId:", requestId);
         const completion = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [{ role: "user", content: prompt }],
         });
 
         const reply = completion.choices?.[0]?.message?.content ?? "No reply";
+        console.log("OpenAI reply (truncated):", (reply || "").substring(0, 300));
 
-        // Save assistant message (include requestId to allow client matching)
+        console.log("Saving assistant reply to Firestore for requestId:", requestId);
         await chatsRef.add({
           senderId: "gpt",
           senderName: "Mosha AI",
@@ -382,23 +405,24 @@ app.post("/chat/create", async (req, res) => {
           requestId: requestId
         });
 
-        // Mark original user message done
         await newDocRef.update({ status: "done", completedAt: admin.firestore.FieldValue.serverTimestamp() });
+        console.log("Async: Completed requestId:", requestId);
       } catch (err) {
-        console.error("OpenAI async error:", err);
+        console.error("Async OpenAI error for requestId", requestId, err);
         try {
-          await newDocRef.update({ status: "failed", error: err.message || "OpenAI error", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+          await newDocRef.update({ status: "failed", error: err.message, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
         } catch (uerr) {
-          console.error("Failed to update message failure status:", uerr);
+          console.error("Failed to mark failure in Firestore for requestId:", requestId, uerr);
         }
       }
     })();
 
   } catch (err) {
-    console.error("chat/create error:", err);
-    res.status(401).json({ ok: false, error: err.message });
+    console.error("❌ /chat/create top-level error:", err);
+    res.status(500).json({ ok: false, error: err.message || "Server error" });
   }
 });
+
 
 // ======================
 // 🚀 Start Server
