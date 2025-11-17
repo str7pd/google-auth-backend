@@ -9,11 +9,13 @@ import admin from "firebase-admin";
 import jwt from "jsonwebtoken";
 import fetch from "node-fetch";
 import OpenAI from "openai";
+import GenAI from "@google/genai";
 
 // ======================
 // ✅ Setup: OpenAI + Firebase
 // ======================
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new GenAI({ apiKey: process.env.GEMINI_API_KEY });
+
 
 // Initialize Firebase Admin SDK once (expects FIREBASE_SERVICE_ACCOUNT env var JSON)
 admin.initializeApp({
