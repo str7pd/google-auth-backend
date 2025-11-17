@@ -11,7 +11,9 @@ import fetch from "node-fetch";
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 
-const openai = new GenAI({ apiKey: process.env.GEMINI_API_KEY });
+const openai = process.env.GEMINI_API_KEY
+  ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+  : null;
 
 // example usage
 const response = await openai.models.generateContent({
