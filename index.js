@@ -9,11 +9,12 @@ import admin from "firebase-admin";
 import jwt from "jsonwebtoken";
 import fetch from "node-fetch";
 import OpenAI from "openai";
-// top of file
 import { GoogleGenAI } from "@google/genai";
 
+const openai = new GenAI({ apiKey: process.env.GEMINI_API_KEY });
+
 // example usage
-const response = await genai.models.generateContent({
+const response = await openai.models.generateContent({
   model: "gemini-2.5-flash",
   contents: "Why is the sky blue?",
 });
@@ -23,7 +24,6 @@ console.log(response.text);
 // ======================
 // ✅ Setup: OpenAI + Firebase
 // ======================
-const openai = new GenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 
 // Initialize Firebase Admin SDK once (expects FIREBASE_SERVICE_ACCOUNT env var JSON)
