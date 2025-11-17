@@ -9,7 +9,16 @@ import admin from "firebase-admin";
 import jwt from "jsonwebtoken";
 import fetch from "node-fetch";
 import OpenAI from "openai";
-import GenAI from "@google/genai";
+// top of file
+import { GoogleGenAI } from "@google/genai";
+
+// example usage
+const response = await genai.models.generateContent({
+  model: "gemini-2.5-flash",
+  contents: "Why is the sky blue?",
+});
+console.log(response.text);
+
 
 // ======================
 // ✅ Setup: OpenAI + Firebase
