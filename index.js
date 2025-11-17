@@ -127,6 +127,41 @@ app.get("/auth/google/callback", async (req, res) => {
     res.status(500).send("Error during Google OAuth login.");
   }
 });
+// GET /chat/result?uid=<uid>&requestId=<requestId>
+app.get("/chat/result", async (req, res) => {
+  try {
+    const sessionToken = extractSessionTokenFromReq(req);
+    const uid = req.query.uid;
+    const requestId = req.query.requestId;
+    if (!sessionToken || !uid || !requestId) {
+      return res.status(400).json({ ok: false, error: "Missing fields" });
+    }
+
+    // Validate session (throws if invalid)
+    await verifySessionByToken(sessionToken, uid);
+
+    const chatsRef = db.collection("users").doc(uid).collection("chats");
+
+    // Look for assistant reply with the given requestId
+    const snapshot = await chatsRef
+      .where("requestId", "==", requestId)
+      .where("role", "==", "assistant")
+      .orderBy("timestamp", "desc")
+      .limit(1)
+      .get();
+
+    if (!snapshot.empty) {
+      const doc = snapshot.docs[0].data();
+      return res.json({ ok: true, reply: doc.message, raw: doc });
+    } else {
+      return res.json({ ok: false, pending: true });
+    }
+  } catch (err) {
+    console.error("chat/result error:", err);
+    res.status(401).json({ ok: false, error: err.message || "Server error" });
+  }
+});
+
 
 
 // Step 3: App posts the Google ID token here. Server validates it with Google and issues server session.
