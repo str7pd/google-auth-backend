@@ -152,31 +152,39 @@ app.get("/chat/result", async (req, res) => {
     try {
       await verifySessionByToken(sessionToken, uid);
     } catch (err) {
-      console.error("verifySessionByToken failed:", err.message);
+      console.error("verifySessionByToken failed:", err);
       return res.status(401).json({ ok: false, error: "Invalid session" });
     }
 
     const chatsRef = db.collection("users").doc(uid).collection("chats");
-    const snapshot = await chatsRef
-      .where("requestId", "==", requestId)
-      .where("role", "==", "assistant")
-      .orderBy("timestamp", "desc")
-      .limit(1)
-      .get();
 
-    if (!snapshot.empty) {
-      const doc = snapshot.docs[0].data();
-      console.log("Found assistant reply for requestId:", requestId, "reply truncated:", (doc.message || "").substring(0, 300));
-      return res.json({ ok: true, reply: doc.message, raw: doc });
-    } else {
-      console.log("No assistant reply yet for requestId:", requestId);
-      return res.json({ ok: false, pending: true });
+    try {
+      const snapshot = await chatsRef
+        .where("requestId", "==", requestId)
+        .where("role", "==", "assistant")
+        .orderBy("timestamp", "desc")
+        .limit(1)
+        .get();
+
+      if (!snapshot.empty) {
+        const doc = snapshot.docs[0].data();
+        console.log("Found assistant reply for requestId:", requestId, "reply truncated:", (doc.message || "").substring(0, 300));
+        return res.json({ ok: true, reply: doc.message, raw: doc });
+      } else {
+        console.log("No assistant reply yet for requestId:", requestId);
+        return res.json({ ok: false, pending: true });
+      }
+    } catch (fireErr) {
+      console.error("Firestore query error in /chat/result:", fireErr);
+      // send the error text back so client logs it (avoid sending full stack in prod)
+      return res.status(500).json({ ok: false, error: "Firestore query failed", detail: fireErr.message });
     }
   } catch (err) {
-    console.error("❌ /chat/result error:", err);
+    console.error("❌ /chat/result top-level error:", err);
     res.status(500).json({ ok: false, error: err.message || "Server error" });
   }
 });
+
 
 // Step 3: App posts the Google ID token here. Server validates it with Google and issues server session.
 app.post("/mobile/verifyToken", async (req, res) => {
