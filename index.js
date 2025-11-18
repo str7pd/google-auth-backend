@@ -156,34 +156,26 @@ app.get("/chat/result", async (req, res) => {
       return res.status(401).json({ ok: false, error: "Invalid session" });
     }
 
-    const chatsRef = db.collection("users").doc(uid).collection("chats");
+    const docRef = db.collection("users").doc(uid).collection("chats").doc(requestId);
+    const snap = await docRef.get();
 
-    try {
-      const snapshot = await chatsRef
-        .where("requestId", "==", requestId)
-        .where("role", "==", "assistant")
-        .orderBy("timestamp", "desc")
-        .limit(1)
-        .get();
-
-      if (!snapshot.empty) {
-        const doc = snapshot.docs[0].data();
-        console.log("Found assistant reply for requestId:", requestId, "reply truncated:", (doc.message || "").substring(0, 300));
-        return res.json({ ok: true, reply: doc.message, raw: doc });
-      } else {
-        console.log("No assistant reply yet for requestId:", requestId);
-        return res.json({ ok: false, pending: true });
-      }
-    } catch (fireErr) {
-      console.error("Firestore query error in /chat/result:", fireErr);
-      // send the error text back so client logs it (avoid sending full stack in prod)
-      return res.status(500).json({ ok: false, error: "Firestore query failed", detail: fireErr.message });
+    if (!snap.exists) {
+      return res.status(404).json({ ok: false, error: "Request not found" });
     }
+
+    const data = snap.data();
+    if (data?.assistant?.message) {
+      return res.json({ ok: true, reply: data.assistant.message, raw: data });
+    }
+
+    // still pending
+    return res.json({ ok: false, pending: true });
   } catch (err) {
     console.error("❌ /chat/result top-level error:", err);
     res.status(500).json({ ok: false, error: err.message || "Server error" });
   }
 });
+
 
 
 // Step 3: App posts the Google ID token here. Server validates it with Google and issues server session.
@@ -407,17 +399,19 @@ app.post("/chat/create", async (req, res) => {
         console.log("GenAI reply (truncated):", (reply || "").substring(0, 300));
 
         console.log("Saving assistant reply to Firestore for requestId:", requestId);
-        await chatsRef.add({
-          senderId: "gpt",
-          senderName: "Mosha AI",
-          message: reply,
-          timestamp: Date.now(),
-          role: "assistant",
-          status: "done",
-          requestId: requestId
-        });
+        // new: update the same request document — no index needed
+        await newDocRef.update({
+          assistant: {
+            senderId: "gpt",
+            senderName: "Mosha AI",
+            message: reply,
+            timestamp: Date.now(),
+            status: "done"
+        },
+            status: "done",
+            completedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
 
-        await newDocRef.update({ status: "done", completedAt: admin.firestore.FieldValue.serverTimestamp() });
         console.log("Async: Completed requestId:", requestId);
       } catch (err) {
         console.error("Async GenAI error for requestId", requestId, err);
