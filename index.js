@@ -159,17 +159,20 @@ app.get("/chat/result", async (req, res) => {
     const docRef = db.collection("users").doc(uid).collection("chats").doc(requestId);
     const snap = await docRef.get();
 
-    if (!snap.exists) {
-      return res.status(404).json({ ok: false, error: "Request not found" });
-    }
+const data = snap.data();
+// if assistant replied normally
+if (data?.assistant?.message) {
+  return res.json({ ok: true, reply: data.assistant.message, raw: data });
+}
 
-    const data = snap.data();
-    if (data?.assistant?.message) {
-      return res.json({ ok: true, reply: data.assistant.message, raw: data });
-    }
+// if assistant produced an error during generation, return that as the reply (so client can show it)
+if (data?.assistant?.error) {
+  return res.json({ ok: true, reply: `Error: ${data.assistant.error}`, raw: data });
+}
 
-    // still pending
-    return res.json({ ok: false, pending: true });
+// still pending
+return res.json({ ok: false, pending: true });
+
   } catch (err) {
     console.error("❌ /chat/result top-level error:", err);
     res.status(500).json({ ok: false, error: err.message || "Server error" });
