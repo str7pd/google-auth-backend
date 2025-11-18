@@ -378,50 +378,115 @@ app.post("/chat/create", async (req, res) => {
     res.json({ ok: true, requestId });
 
     // Async processing using GenAI only
-    (async () => {
+(async () => {
+  try {
+    console.log("Async: Marking processing for requestId:", requestId);
+    await newDocRef.update({ status: "processing", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+
+    if (!genai) throw new Error("GenAI client not initialized (missing GEMINI_API_KEY)");
+
+    console.log("Async: Calling GenAI for requestId:", requestId);
+
+    // Retry loop for transient GenAI errors
+    const maxAttempts = 5;
+    let attempt = 0;
+    let genResponse = null;
+    let lastErr = null;
+
+    while (attempt < maxAttempts) {
+      attempt++;
       try {
-        console.log("Async: Marking processing for requestId:", requestId);
-        await newDocRef.update({ status: "processing", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-
-        if (!genai) throw new Error("GenAI client not initialized (missing GEMINI_API_KEY)");
-
-        console.log("Async: Calling GenAI for requestId:", requestId);
-
-        // Use generateContent — contents can be a simple string or structured content array.
-        const genResponse = await genai.models.generateContent({
-          model: "gemini-2.5-flash", // pick the model you prefer
+        genResponse = await genai.models.generateContent({
+          model: "gemini-2.5-flash", // change if you prefer another model
           contents: prompt
-          // If you want multi-part content or roles, pass an array:
-          // contents: [{ role: 'user', parts: [{ text: prompt }] }]
         });
+        // if we reached here, success
+        break;
+      } catch (err) {
+        lastErr = err;
+        console.error(`GenAI attempt ${attempt} failed for requestId ${requestId}:`, err);
 
-        const reply = genResponse?.text ?? JSON.stringify(genResponse).slice(0, 2000);
-        console.log("GenAI reply (truncated):", (reply || "").substring(0, 300));
+        // detect transient errors (503 / UNAVAILABLE / overloaded)
+        const statusCode = err?.code || err?.status;
+        const message = (err?.message || "").toString().toLowerCase();
+        const isTransient =
+          statusCode === 503 ||
+          statusCode === "UNAVAILABLE" ||
+          message.includes("overloaded") ||
+          message.includes("unavailable") ||
+          message.includes("rate limit");
 
-        console.log("Saving assistant reply to Firestore for requestId:", requestId);
-        // new: update the same request document — no index needed
-        await newDocRef.update({
-          assistant: {
-            senderId: "gpt",
-            senderName: "Mosha AI",
-            message: reply,
-            timestamp: Date.now(),
-            status: "done"
+        if (!isTransient) {
+          // non-transient — stop retrying
+          console.error("Non-transient GenAI error, will not retry:", message);
+          break;
+        }
+
+        if (attempt >= maxAttempts) {
+          console.error("Reached max GenAI retry attempts");
+          break;
+        }
+
+        // exponential backoff (ms)
+        const waitMs = Math.min(2000 * attempt, 10000);
+        console.log(`Retrying GenAI in ${waitMs}ms (attempt ${attempt + 1}/${maxAttempts})`);
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+    }
+
+    // If we have a successful response, extract reply and save
+    if (genResponse) {
+      // genResponse.text is commonly returned; adapt if structure differs
+      const reply = genResponse?.text ?? JSON.stringify(genResponse).slice(0, 2000);
+      console.log("GenAI reply (truncated):", (reply || "").substring(0, 300));
+
+      // Save assistant reply into same document (no index required)
+      await newDocRef.update({
+        assistant: {
+          senderId: "gpt",
+          senderName: "Mosha AI",
+          message: reply,
+          timestamp: Date.now(),
+          status: "done"
         },
-            status: "done",
-            completedAt: admin.firestore.FieldValue.serverTimestamp()
+        status: "done",
+        completedAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
-        console.log("Async: Completed requestId:", requestId);
-      } catch (err) {
-        console.error("Async GenAI error for requestId", requestId, err);
-        try {
-          await newDocRef.update({ status: "failed", error: err.message, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-        } catch (uerr) {
-          console.error("Failed to mark failure in Firestore for requestId:", requestId, uerr);
-        }
-      }
-    })();
+      console.log("Saving assistant reply to Firestore for requestId:", requestId);
+      console.log("Async: Completed requestId:", requestId);
+      return;
+    }
+
+    // If we reach here, genResponse is null => all attempts failed
+    const errorMessage = lastErr?.message ? String(lastErr.message) : "GenAI: unknown failure";
+    console.error("Async GenAI final failure for requestId", requestId, errorMessage);
+
+    // Save an assistant.error field so client will stop polling and display something useful
+    await newDocRef.update({
+      assistant: {
+        error: errorMessage,
+        timestamp: Date.now(),
+        status: "failed"
+      },
+      status: "failed",
+      completedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+  } catch (err) {
+    console.error("Async worker fatal error for requestId", requestId, err);
+    // Best effort to mark failure on the request doc
+    try {
+      await newDocRef.update({
+        assistant: { error: err?.message ?? String(err), status: "failed", timestamp: Date.now() },
+        status: "failed",
+        completedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (uerr) {
+      console.error("Failed to mark failure in Firestore for requestId:", requestId, uerr);
+    }
+  }
+})();
 
   } catch (err) {
     console.error("❌ /chat/create top-level error:", err);
