@@ -1,37 +1,41 @@
-// index.js — secure backend (app -> server -> Firebase & OpenAI)
-// ======================
-// ✅ Imports
-// ======================
+// index.js — secure backend (app -> server -> Firebase & GenAI)
+// ==========================================================
+// Uses: express, cors, firebase-admin, google-auth, @google/genai
+// ==========================================================
+
 import express from "express";
 import cors from "cors";
 import { google } from "googleapis";
 import admin from "firebase-admin";
 import jwt from "jsonwebtoken";
 import fetch from "node-fetch";
-import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 
-const openai = process.env.GEMINI_API_KEY
+// ======================
+// ✅ GenAI client
+// ======================
+const genai = process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null;
 
-// example usage
-const response = await openai.models.generateContent({
-  model: "gemini-2.5-flash",
-  contents: "Why is the sky blue?",
-});
-console.log(response.text);
-
+if (!genai) {
+  console.warn("⚠️ GEMINI_API_KEY not set — GenAI client NOT initialized");
+}
 
 // ======================
-// ✅ Setup: OpenAI + Firebase
+// ✅ Firebase setup
 // ======================
-
-
-// Initialize Firebase Admin SDK once (expects FIREBASE_SERVICE_ACCOUNT env var JSON)
-admin.initializeApp({
-  credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
-});
+try {
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT env var is not set");
+  }
+  admin.initializeApp({
+    credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
+  });
+} catch (err) {
+  console.error("Failed to initialize Firebase Admin:", err);
+  // Proceeding, but many operations will fail without a proper Firebase init.
+}
 const db = admin.firestore();
 
 // ======================
@@ -41,8 +45,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ======================
-// 🌍 Optional: Time check (debug)
+// Optional time check (debug)
 (async () => {
   try {
     const res = await fetch("https://www.google.com");
@@ -56,15 +59,13 @@ app.use(express.json());
 console.log("🕒 Server start time:", new Date().toISOString());
 
 // ======================
-// ✅ Environment setup
+// ✅ Constants / OAuth
 // ======================
-const SESSION_COLLECTION = "sessions"; // Firestore collection for server sessions
-const WEB_CLIENT_ID =
-  "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com";
+const SESSION_COLLECTION = "sessions";
+const WEB_CLIENT_ID = "445520681231-vt90cd5l7c66bekncdfmrvhli6eui6ja.apps.googleusercontent.com";
 const WEB_CLIENT_SECRET = process.env.WEB_CLIENT_SECRET || "";
 const REDIRECT_URI = "https://google-auth-backend-y2jp.onrender.com/auth/google/callback";
 
-// Google OAuth client (used for web flow)
 const oauth2Client = new google.auth.OAuth2(WEB_CLIENT_ID, WEB_CLIENT_SECRET, REDIRECT_URI);
 
 // Helper: generate a random server session token
@@ -77,7 +78,7 @@ function generateSessionToken() {
 // ======================
 
 // Root
-app.get("/", (req, res) => res.send("✅ Secure Google Auth backend is running!"));
+app.get("/", (req, res) => res.send("✅ Secure Google Auth backend (GenAI-only) is running!"));
 
 // Step 1: Redirect to Google OAuth for web/mobile flows
 app.get("/auth/google/mobile", (req, res) => {
@@ -97,32 +98,26 @@ app.get("/auth/google/callback", async (req, res) => {
     const { code } = req.query;
     if (!code) throw new Error("Missing ?code in callback URL");
 
-    // Exchange code for tokens
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
-    // Verify ID token to get Google user info
     const ticket = await oauth2Client.verifyIdToken({
       idToken: tokens.id_token,
       audience: WEB_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
-    const uid = `google_${payload.sub}`; // stable UID based on Google sub
+    const uid = `google_${payload.sub}`;
     console.log("✅ Google user:", payload.email);
 
-    // Ensure Firebase user exists
     let userRecord;
     try {
       userRecord = await admin.auth().getUser(uid);
     } catch (err) {
-      // If not found, check by email
       const existingByEmail = await admin.auth().getUserByEmail(payload.email).catch(() => null);
-
       if (existingByEmail) {
         userRecord = existingByEmail;
       } else {
-        // Otherwise create a new Firebase user
         userRecord = await admin.auth().createUser({
           uid,
           email: payload.email,
@@ -132,7 +127,6 @@ app.get("/auth/google/callback", async (req, res) => {
       }
     }
 
-    // ✅ Redirect back to app with the Google ID token
     const googleIdToken = tokens.id_token;
     res.redirect(`mosha://auth?firebaseToken=${googleIdToken}`);
   } catch (err) {
@@ -140,6 +134,7 @@ app.get("/auth/google/callback", async (req, res) => {
     res.status(500).send("Error during Google OAuth login.");
   }
 });
+
 // GET /chat/result?uid=<uid>&requestId=<requestId>
 app.get("/chat/result", async (req, res) => {
   console.log("📥 /chat/result called with query:", req.query);
@@ -182,9 +177,6 @@ app.get("/chat/result", async (req, res) => {
     res.status(500).json({ ok: false, error: err.message || "Server error" });
   }
 });
-
-
-
 
 // Step 3: App posts the Google ID token here. Server validates it with Google and issues server session.
 app.post("/mobile/verifyToken", async (req, res) => {
@@ -240,8 +232,6 @@ app.post("/mobile/verifyToken", async (req, res) => {
   }
 });
 
-
-
 // Endpoint to verify session (optional)
 app.post("/verify-session", async (req, res) => {
   try {
@@ -263,36 +253,32 @@ app.post("/verify-session", async (req, res) => {
 // ======================
 // 🔐 Session helpers
 // ======================
-
-// Verify server session by token + optional uid check
 async function verifySessionByToken(sessionToken, uidOptional = null) {
   if (!sessionToken) throw new Error("Missing session token");
-  // Try to find session in Firestore
   const q = await db.collection(SESSION_COLLECTION).where("sessionToken", "==", sessionToken).limit(1).get();
   if (q.empty) throw new Error("Invalid session token");
   const data = q.docs[0].data();
   if (uidOptional && data.uid !== uidOptional) throw new Error("UID mismatch");
-  return data; // { sessionToken, uid, email, createdAt }
+  return data;
 }
 
-// Helper: Accept either header `Authorization: Bearer <token>` or body.sessionToken
 function extractSessionTokenFromReq(req) {
   const auth = req.headers.authorization;
   if (auth && auth.startsWith("Bearer ")) return auth.split(" ")[1];
   if (req.body?.sessionToken) return req.body.sessionToken;
-  if (req.query?.sessionToken) return req.query.sessionToken;
+  if (req.query?.sessionToken) return req.query?.sessionToken;
   return null;
 }
 
 // ======================
-// 💬 Chat Endpoints (server-only Firebase access)
+// 💬 Chat Endpoints (server-only using GenAI only)
 // ======================
 
-// Get chat history for user (POST preferred so body can carry sessionToken/uid)
+// Get chat history for user
 app.post("/chat/history", async (req, res) => {
   try {
     const sessionToken = extractSessionTokenFromReq(req);
-    const uid = req.body.uid; // optional but recommended to bind to a specific uid
+    const uid = req.body.uid;
     const session = await verifySessionByToken(sessionToken, uid);
     const userUid = session.uid;
 
@@ -341,8 +327,7 @@ app.post("/chat/sendMessage", async (req, res) => {
   }
 });
 
-// POST /chat/create
-// POST /chat/create  (fast ACK + async OpenAI processing)
+// POST /chat/create (fast ACK + async GenAI processing)
 app.post("/chat/create", async (req, res) => {
   console.log("📥 /chat/create called");
   console.log("Headers:", req.headers);
@@ -392,20 +377,26 @@ app.post("/chat/create", async (req, res) => {
     // Immediate ACK
     res.json({ ok: true, requestId });
 
-    // Async processing
+    // Async processing using GenAI only
     (async () => {
       try {
         console.log("Async: Marking processing for requestId:", requestId);
         await newDocRef.update({ status: "processing", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
 
-        console.log("Async: Calling OpenAI for requestId:", requestId);
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content: prompt }],
+        if (!genai) throw new Error("GenAI client not initialized (missing GEMINI_API_KEY)");
+
+        console.log("Async: Calling GenAI for requestId:", requestId);
+
+        // Use generateContent — contents can be a simple string or structured content array.
+        const genResponse = await genai.models.generateContent({
+          model: "gemini-2.5-flash", // pick the model you prefer
+          contents: prompt
+          // If you want multi-part content or roles, pass an array:
+          // contents: [{ role: 'user', parts: [{ text: prompt }] }]
         });
 
-        const reply = completion.choices?.[0]?.message?.content ?? "No reply";
-        console.log("OpenAI reply (truncated):", (reply || "").substring(0, 300));
+        const reply = genResponse?.text ?? JSON.stringify(genResponse).slice(0, 2000);
+        console.log("GenAI reply (truncated):", (reply || "").substring(0, 300));
 
         console.log("Saving assistant reply to Firestore for requestId:", requestId);
         await chatsRef.add({
@@ -421,7 +412,7 @@ app.post("/chat/create", async (req, res) => {
         await newDocRef.update({ status: "done", completedAt: admin.firestore.FieldValue.serverTimestamp() });
         console.log("Async: Completed requestId:", requestId);
       } catch (err) {
-        console.error("Async OpenAI error for requestId", requestId, err);
+        console.error("Async GenAI error for requestId", requestId, err);
         try {
           await newDocRef.update({ status: "failed", error: err.message, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
         } catch (uerr) {
@@ -435,7 +426,6 @@ app.post("/chat/create", async (req, res) => {
     res.status(500).json({ ok: false, error: err.message || "Server error" });
   }
 });
-
 
 // ======================
 // 🚀 Start Server
