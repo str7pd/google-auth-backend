@@ -375,6 +375,27 @@ app.post("/chat/create", async (req, res) => {
 
     console.log("Creating user message doc with requestId:", requestId);
     await newDocRef.set(userMsg);
+    // Node server pseudocode inside /chat/create:
+const convId = requestId; // or something provided by client
+await db.collection('users').doc(userUid)
+  .collection('conversations').doc(convId)
+  .set({
+     title: prompt.slice(0,50),
+     lastMessage: prompt,
+     lastTimestamp: Date.now(),
+     unread: 0,
+     requestId: convId
+  }, { merge: true });
+
+// when assistant reply saved:
+await db.collection('users').doc(userUid)
+  .collection('conversations').doc(convId)
+  .update({
+     lastMessage: reply,
+     lastTimestamp: Date.now(),
+     unread: admin.firestore.FieldValue.increment(1),
+  });
+
     console.log("User message saved to Firestore (pending).");
 
     // Immediate ACK
